@@ -11,17 +11,41 @@ export default function App() {
   const [loading, setLoading] = useState(true)
   const [isReset, setIsReset] = useState(false)
 
-  const loadProfile = async (userId) => {
-    const { data } = await supabase
+  const loadOrCreateProfile = async (user) => {
+    // Try to get existing profile
+    let { data: profile } = await supabase
       .from('profiles')
       .select('*')
-      .eq('id', userId)
+      .eq('id', user.id)
       .single()
-    return data
+
+    // If no profile exists (e.g. Google sign-in first time), create one
+    if (!profile) {
+      const name =
+        user.user_metadata?.name ||
+        user.user_metadata?.full_name ||
+        user.email
+
+      const { data: created } = await supabase
+        .from('profiles')
+        .insert({
+          id: user.id,
+          name,
+          phone: user.user_metadata?.phone || '',
+          role: 'user',
+          status: 'active',
+          sanctioned: false,
+        })
+        .select()
+        .single()
+
+      profile = created
+    }
+
+    return profile
   }
 
   useEffect(() => {
-    // Detect password reset from URL hash
     const hash = window.location.hash
     if (hash && hash.includes('type=recovery')) {
       setIsReset(true)
@@ -29,7 +53,6 @@ export default function App() {
       return
     }
 
-    // onAuthStateChange handles EVERYTHING — initial load + login + logout
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, sess) => {
       if (event === 'PASSWORD_RECOVERY') {
         setIsReset(true)
@@ -38,13 +61,14 @@ export default function App() {
       }
 
       if (sess) {
-        const p = await loadProfile(sess.user.id)
+        const p = await loadOrCreateProfile(sess.user)
         setSession(sess)
         setProfile(p)
       } else {
         setSession(null)
         setProfile(null)
       }
+
       setLoading(false)
     })
 
@@ -55,7 +79,6 @@ export default function App() {
     await supabase.auth.signOut()
   }
 
-  // Loading spinner
   if (loading) {
     return (
       <div style={{
@@ -74,7 +97,6 @@ export default function App() {
     )
   }
 
-  // Password reset flow
   if (isReset) {
     return <ResetPassword onDone={() => {
       setIsReset(false)
@@ -82,17 +104,14 @@ export default function App() {
     }} />
   }
 
-  // Not logged in
   if (!session || !profile) {
     return <Auth />
   }
 
-  // Admin
   if (profile.role === 'admin') {
     return <AdminDash onLogout={handleLogout} />
   }
 
-  // Regular user
   const user = {
     id: session.user.id,
     email: session.user.email,
