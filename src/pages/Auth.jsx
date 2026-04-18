@@ -51,7 +51,7 @@ const GoogleBtn = ({ onClick, loading }) => (
   </button>
 )
 
-export default function Auth({ onLogin }) {
+export default function Auth() {
   const [tab, setTab] = useState('login')
   const [step, setStep] = useState(1)
   const [f, setF] = useState({})
@@ -92,7 +92,7 @@ export default function Auth({ onLogin }) {
       .eq('id', data.user.id)
       .single()
 
-    onLogin({ ...data.user, ...profile, name: profile?.name || data.user.email })
+    // session handled by onAuthStateChange in App.jsx
   }
 
   const signup = async () => {
