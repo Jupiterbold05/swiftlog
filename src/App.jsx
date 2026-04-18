@@ -21,7 +21,7 @@ export default function App() {
   }
 
   useEffect(() => {
-    // Detect password reset flow from URL hash
+    // Detect password reset from URL hash
     const hash = window.location.hash
     if (hash && hash.includes('type=recovery')) {
       setIsReset(true)
@@ -29,25 +29,17 @@ export default function App() {
       return
     }
 
-    // Check existing session
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (session) {
-        const p = await loadProfile(session.user.id)
-        setSession(session)
-        setProfile(p)
-      }
-      setLoading(false)
-    })
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    // onAuthStateChange handles EVERYTHING — initial load + login + logout
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, sess) => {
       if (event === 'PASSWORD_RECOVERY') {
         setIsReset(true)
         setLoading(false)
         return
       }
-      if (session) {
-        const p = await loadProfile(session.user.id)
-        setSession(session)
+
+      if (sess) {
+        const p = await loadProfile(sess.user.id)
+        setSession(sess)
         setProfile(p)
       } else {
         setSession(null)
@@ -61,10 +53,9 @@ export default function App() {
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
-    setSession(null)
-    setProfile(null)
   }
 
+  // Loading spinner
   if (loading) {
     return (
       <div style={{
@@ -93,14 +84,7 @@ export default function App() {
 
   // Not logged in
   if (!session || !profile) {
-    return <Auth onLogin={async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (session) {
-        const p = await loadProfile(session.user.id)
-        setSession(session)
-        setProfile(p)
-      }
-    }} />
+    return <Auth />
   }
 
   // Admin
@@ -108,6 +92,7 @@ export default function App() {
     return <AdminDash onLogout={handleLogout} />
   }
 
+  // Regular user
   const user = {
     id: session.user.id,
     email: session.user.email,
