@@ -3,11 +3,13 @@ import { supabase } from './lib/supabase'
 import Auth from './pages/Auth'
 import UserDash from './pages/UserDash'
 import AdminDash from './pages/AdminDash'
+import ResetPassword from './pages/ResetPassword'
 
 export default function App() {
   const [session, setSession] = useState(null)
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [isReset, setIsReset] = useState(false)
 
   const loadProfile = async (userId) => {
     const { data } = await supabase
@@ -19,7 +21,15 @@ export default function App() {
   }
 
   useEffect(() => {
-    // Check existing session on mount
+    // Detect password reset flow from URL hash
+    const hash = window.location.hash
+    if (hash && hash.includes('type=recovery')) {
+      setIsReset(true)
+      setLoading(false)
+      return
+    }
+
+    // Check existing session
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session) {
         const p = await loadProfile(session.user.id)
@@ -29,8 +39,12 @@ export default function App() {
       setLoading(false)
     })
 
-    // Listen for auth state changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setIsReset(true)
+        setLoading(false)
+        return
+      }
       if (session) {
         const p = await loadProfile(session.user.id)
         setSession(session)
@@ -39,15 +53,11 @@ export default function App() {
         setSession(null)
         setProfile(null)
       }
+      setLoading(false)
     })
 
     return () => subscription.unsubscribe()
   }, [])
-
-  const handleLogin = (userData) => {
-    // userData comes from Auth page after login + profile fetch
-    setProfile(userData)
-  }
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -73,9 +83,24 @@ export default function App() {
     )
   }
 
+  // Password reset flow
+  if (isReset) {
+    return <ResetPassword onDone={() => {
+      setIsReset(false)
+      window.location.hash = ''
+    }} />
+  }
+
   // Not logged in
   if (!session || !profile) {
-    return <Auth onLogin={handleLogin} />
+    return <Auth onLogin={async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session) {
+        const p = await loadProfile(session.user.id)
+        setSession(session)
+        setProfile(p)
+      }
+    }} />
   }
 
   // Admin
@@ -83,7 +108,6 @@ export default function App() {
     return <AdminDash onLogout={handleLogout} />
   }
 
-  // Regular user — merge auth user + profile
   const user = {
     id: session.user.id,
     email: session.user.email,
