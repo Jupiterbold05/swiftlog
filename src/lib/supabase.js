@@ -8,6 +8,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: true,
-    lock: false,
+    storageKey: 'swiftlog-auth',
+    flowType: 'implicit',
   }
 })
