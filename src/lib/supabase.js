@@ -1,38 +1,14 @@
-import { useEffect, useState } from 'react'
-import { supabase } from './supabaseClient' // The file you created earlier
+import { createClient } from '@supabase/supabase-js'
 
-export default function App() {
-  const [session, setSession] = useState(null)
-  const [loading, setLoading] = useState(true) // 1. Set a loading state
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 
-  useEffect(() => {
-    // 2. Fetch the session on initial load
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session)
-      setLoading(false) // 3. Turn off the loading state once we know the answer!
-    })
-
-    // 4. Listen for any auth changes (login, logout, token refresh)
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session)
-      setLoading(false) 
-    })
-
-    // Cleanup subscription on unmount
-    return () => subscription.unsubscribe()
-  }, [])
-
-  // 5. Block the rest of the app from rendering until Supabase is done
-  if (loading) {
-    return <div>Loading...</div> // This prevents the infinite redirect!
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
+    storageKey: 'swiftlog-auth-v2',
+    flowType: 'pkce',
   }
-
-  // 6. Once loading is false, safely render your routes
-  return (
-    <div>
-      {session ? <p>Welcome back! You are logged in.</p> : <p>Please log in.</p>}
-    </div>
-  )
-}
+})
