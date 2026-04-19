@@ -6,70 +6,81 @@ import AdminDash from './pages/AdminDash'
 import ResetPassword from './pages/ResetPassword'
 
 export default function App() {
-  const [session, setSession] = useState(null)
+  const [session, setSession] = useState(undefined)
   const [profile, setProfile] = useState(null)
-  const [loading, setLoading] = useState(true)
   const [isReset, setIsReset] = useState(false)
 
   const loadOrCreateProfile = async (user) => {
-    // Try to get existing profile
-    let { data: profile } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', user.id)
-      .single()
-
-    // If no profile exists (e.g. Google sign-in first time), create one
-    if (!profile) {
-      const name =
-        user.user_metadata?.name ||
-        user.user_metadata?.full_name ||
-        user.email
-
-      const { data: created } = await supabase
+    try {
+      let { data: p } = await supabase
         .from('profiles')
-        .insert({
-          id: user.id,
-          name,
-          phone: user.user_metadata?.phone || '',
-          role: 'user',
-          status: 'active',
-          sanctioned: false,
-        })
-        .select()
+        .select('*')
+        .eq('id', user.id)
         .single()
 
-      profile = created
-    }
+      if (!p) {
+        const name =
+          user.user_metadata?.name ||
+          user.user_metadata?.full_name ||
+          user.email
 
-    return profile
+        const { data: created } = await supabase
+          .from('profiles')
+          .insert({
+            id: user.id,
+            name,
+            phone: user.user_metadata?.phone || '',
+            role: 'user',
+            status: 'active',
+            sanctioned: false,
+          })
+          .select()
+          .single()
+
+        p = created
+      }
+      return p
+    } catch (e) {
+      console.error('Profile error:', e)
+      return null
+    }
   }
 
   useEffect(() => {
+    // Handle password recovery URL
     const hash = window.location.hash
     if (hash && hash.includes('type=recovery')) {
       setIsReset(true)
-      setLoading(false)
+      setSession(null)
       return
     }
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, sess) => {
+    // Get initial session once
+    supabase.auth.getSession().then(async ({ data: { session: s } }) => {
+      if (s) {
+        const p = await loadOrCreateProfile(s.user)
+        setProfile(p)
+      }
+      setSession(s || null)
+    })
+
+    // Listen for changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, s) => {
       if (event === 'PASSWORD_RECOVERY') {
         setIsReset(true)
-        setLoading(false)
+        setSession(null)
         return
       }
-
-      if (sess) {
-        const p = await loadOrCreateProfile(sess.user)
-        setSession(sess)
-        setProfile(p)
-      } else {
+      if (event === 'SIGNED_OUT') {
         setSession(null)
         setProfile(null)
+        return
       }
-
-      setLoading(false)
+      if (s && (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED')) {
+        const p = await loadOrCreateProfile(s.user)
+        setProfile(p)
+        setSession(s)
+      }
     })
 
     return () => subscription.unsubscribe()
@@ -79,11 +90,13 @@ export default function App() {
     await supabase.auth.signOut()
   }
 
-  if (loading) {
+  // session undefined = still loading
+  if (session === undefined) {
     return (
       <div style={{
-        minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: '#0C1623', flexDirection: 'column', gap: 14,
+        minHeight: '100vh', display: 'flex', alignItems: 'center',
+        justifyContent: 'center', background: '#0C1623',
+        flexDirection: 'column', gap: 14,
       }}>
         <div style={{ fontSize: 32 }}>🚚</div>
         <div style={{
@@ -112,11 +125,5 @@ export default function App() {
     return <AdminDash onLogout={handleLogout} />
   }
 
-  const user = {
-    id: session.user.id,
-    email: session.user.email,
-    ...profile,
-  }
-
-  return <UserDash user={user} onLogout={handleLogout} />
+  return <UserDash user={{ id: session.user.id, email: session.user.email, ...profile }} onLogout={handleLogout} />
 }
