@@ -55,8 +55,14 @@ export default function App() {
       return
     }
 
-    // Single source of truth — onAuthStateChange fires on mount with INITIAL_SESSION
+    // Safety net — if nothing fires in 5s, stop loading
+    const timeout = setTimeout(() => {
+      setLoading(false)
+    }, 5000)
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      clearTimeout(timeout)
+
       if (event === 'PASSWORD_RECOVERY') {
         setIsReset(true)
         setLoading(false)
@@ -81,7 +87,10 @@ export default function App() {
       setLoading(false)
     })
 
-    return () => subscription.unsubscribe()
+    return () => {
+      clearTimeout(timeout)
+      subscription.unsubscribe()
+    }
   }, [])
 
   const handleLogout = async () => {
