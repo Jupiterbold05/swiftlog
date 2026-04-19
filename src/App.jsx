@@ -48,7 +48,6 @@ export default function App() {
   }
 
   useEffect(() => {
-    // Password recovery
     const hash = window.location.hash
     if (hash && hash.includes('type=recovery')) {
       setIsReset(true)
@@ -56,42 +55,30 @@ export default function App() {
       return
     }
 
-    // Use getUser() — reads directly from localStorage, no lock needed
-    const init = async () => {
-      try {
-        const { data: { user: u } } = await supabase.auth.getUser()
-        if (u) {
-          const p = await loadOrCreateProfile(u)
-          setUser(u)
-          setProfile(p)
-        }
-      } catch (e) {
-        console.error('Init error:', e)
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    init()
-
-    // Only listen for live auth events
+    // Single source of truth — onAuthStateChange fires on mount with INITIAL_SESSION
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'PASSWORD_RECOVERY') {
         setIsReset(true)
         setLoading(false)
         return
       }
+
       if (event === 'SIGNED_OUT') {
         setUser(null)
         setProfile(null)
+        setLoading(false)
         return
       }
-      if (event === 'SIGNED_IN' && session?.user) {
+
+      if (session?.user) {
         const p = await loadOrCreateProfile(session.user)
         setUser(session.user)
         setProfile(p)
-        setLoading(false)
+      } else {
+        setUser(null)
+        setProfile(null)
       }
+      setLoading(false)
     })
 
     return () => subscription.unsubscribe()
@@ -127,13 +114,9 @@ export default function App() {
     }} />
   }
 
-  if (!user || !profile) {
-    return <Auth />
-  }
+  if (!user || !profile) return <Auth />
 
-  if (profile.role === 'admin') {
-    return <AdminDash onLogout={handleLogout} />
-  }
+  if (profile.role === 'admin') return <AdminDash onLogout={handleLogout} />
 
   return <UserDash
     user={{ id: user.id, email: user.email, ...profile }}
