@@ -6,30 +6,31 @@ import AdminDash from './pages/AdminDash'
 import ResetPassword from './pages/ResetPassword'
 
 export default function App() {
-  const [session, setSession] = useState(undefined)
+  const [user, setUser] = useState(null)
   const [profile, setProfile] = useState(null)
+  const [loading, setLoading] = useState(true)
   const [isReset, setIsReset] = useState(false)
 
-  const loadOrCreateProfile = async (user) => {
+  const loadOrCreateProfile = async (u) => {
     try {
       let { data: p } = await supabase
         .from('profiles')
         .select('*')
-        .eq('id', user.id)
+        .eq('id', u.id)
         .single()
 
       if (!p) {
         const name =
-          user.user_metadata?.name ||
-          user.user_metadata?.full_name ||
-          user.email
+          u.user_metadata?.name ||
+          u.user_metadata?.full_name ||
+          u.email
 
         const { data: created } = await supabase
           .from('profiles')
           .insert({
-            id: user.id,
+            id: u.id,
             name,
-            phone: user.user_metadata?.phone || '',
+            phone: u.user_metadata?.phone || '',
             role: 'user',
             status: 'active',
             sanctioned: false,
@@ -47,39 +48,49 @@ export default function App() {
   }
 
   useEffect(() => {
-    // Handle password recovery URL
+    // Password recovery
     const hash = window.location.hash
     if (hash && hash.includes('type=recovery')) {
       setIsReset(true)
-      setSession(null)
+      setLoading(false)
       return
     }
 
-    // Get initial session once
-    supabase.auth.getSession().then(async ({ data: { session: s } }) => {
-      if (s) {
-        const p = await loadOrCreateProfile(s.user)
-        setProfile(p)
+    // Use getUser() — reads directly from localStorage, no lock needed
+    const init = async () => {
+      try {
+        const { data: { user: u } } = await supabase.auth.getUser()
+        if (u) {
+          const p = await loadOrCreateProfile(u)
+          setUser(u)
+          setProfile(p)
+        }
+      } catch (e) {
+        console.error('Init error:', e)
+      } finally {
+        setLoading(false)
       }
-      setSession(s || null)
-    })
+    }
 
-    // Listen for changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, s) => {
+    init()
+
+    // Only listen for live auth events
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'PASSWORD_RECOVERY') {
         setIsReset(true)
-        setSession(null)
+        setLoading(false)
         return
       }
       if (event === 'SIGNED_OUT') {
-        setSession(null)
+        setUser(null)
         setProfile(null)
         return
       }
-      if (s && (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED')) {
-        const p = await loadOrCreateProfile(s.user)
+      if (event === 'SIGNED_IN' && session?.user) {
+        const p = await loadOrCreateProfile(session.user)
+        setUser(session.user)
         setProfile(p)
-        setSession(s)
+        setLoading(false)
       }
     })
 
@@ -90,8 +101,7 @@ export default function App() {
     await supabase.auth.signOut()
   }
 
-  // session undefined = still loading
-  if (session === undefined) {
+  if (loading) {
     return (
       <div style={{
         minHeight: '100vh', display: 'flex', alignItems: 'center',
@@ -117,7 +127,7 @@ export default function App() {
     }} />
   }
 
-  if (!session || !profile) {
+  if (!user || !profile) {
     return <Auth />
   }
 
@@ -125,5 +135,8 @@ export default function App() {
     return <AdminDash onLogout={handleLogout} />
   }
 
-  return <UserDash user={{ id: session.user.id, email: session.user.email, ...profile }} onLogout={handleLogout} />
+  return <UserDash
+    user={{ id: user.id, email: user.email, ...profile }}
+    onLogout={handleLogout}
+  />
 }
