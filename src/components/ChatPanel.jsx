@@ -6,7 +6,9 @@ export default function ChatPanel({ userId, isAdmin, onBack, targetUser }) {
   const [messages, setMessages] = useState([])
   const [text, setText] = useState('')
   const [loading, setLoading] = useState(true)
+  const [uploading, setUploading] = useState(false)
   const bottom = useRef(null)
+  const fileRef = useRef(null)
 
   const fetchMessages = async () => {
     const { data, error } = await supabase
@@ -52,14 +54,12 @@ export default function ChatPanel({ userId, isAdmin, onBack, targetUser }) {
     bottom.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages.length])
 
-  const send = async () => {
-    const tr = text.trim()
-    if (!tr) return
-    setText('')
+  const sendMessage = async (content, type = 'text') => {
     const msg = {
       from_id: isAdmin ? 'admin' : userId,
       to_id: isAdmin ? userId : 'admin',
-      text: tr,
+      text: content,
+      msg_type: type,
       created_at: new Date().toISOString(),
     }
     const tempId = `tmp-${Date.now()}`
@@ -71,7 +71,89 @@ export default function ChatPanel({ userId, isAdmin, onBack, targetUser }) {
     }
   }
 
+  const send = async () => {
+    const tr = text.trim()
+    if (!tr) return
+    setText('')
+    await sendMessage(tr, 'text')
+  }
+
+  const handleFile = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    // Max 5MB
+    if (file.size > 5 * 1024 * 1024) {
+      alert('File too large. Max 5MB.')
+      return
+    }
+
+    setUploading(true)
+    try {
+      const ext = file.name.split('.').pop()
+      const filename = `chat/${userId}/${Date.now()}.${ext}`
+
+      const { error: uploadError } = await supabase.storage
+        .from('chat-media')
+        .upload(filename, file, { upsert: true })
+
+      if (uploadError) throw uploadError
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('chat-media')
+        .getPublicUrl(filename)
+
+      const isImage = file.type.startsWith('image/')
+      await sendMessage(publicUrl, isImage ? 'image' : 'file')
+    } catch (err) {
+      console.error('Upload error:', err.message)
+      alert('Upload failed: ' + err.message)
+    } finally {
+      setUploading(false)
+      e.target.value = ''
+    }
+  }
+
   const isMine = (msg) => isAdmin ? msg.from_id === 'admin' : msg.from_id === userId
+
+  const renderContent = (m) => {
+    const type = m.msg_type || 'text'
+    if (type === 'image') {
+      return (
+        <div>
+          <img
+            src={m.text}
+            alt="shared image"
+            style={{
+              maxWidth: '100%', borderRadius: 8,
+              display: 'block', marginBottom: 4,
+              cursor: 'pointer',
+            }}
+            onClick={() => window.open(m.text, '_blank')}
+          />
+        </div>
+      )
+    }
+    if (type === 'file') {
+      const filename = m.text.split('/').pop()
+      return (
+        <a
+          href={m.text}
+          target="_blank"
+          rel="noreferrer"
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            color: 'inherit', textDecoration: 'none',
+            background: 'rgba(0,0,0,.1)', padding: '6px 10px',
+            borderRadius: 8, fontSize: 13,
+          }}
+        >
+          📎 {filename}
+        </a>
+      )
+    }
+    return m.text
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, background: '#fff' }}>
@@ -131,7 +213,7 @@ export default function ChatPanel({ userId, isAdmin, onBack, targetUser }) {
                 borderRadius: mine ? '14px 14px 4px 14px' : '14px 14px 14px 4px',
                 padding: '8px 12px', fontSize: 14, lineHeight: 1.5, opacity: isTemp ? 0.7 : 1,
               }}>
-                {m.text}
+                {renderContent(m)}
                 <div style={{ fontSize: 10, opacity: .55, marginTop: 2, textAlign: mine ? 'right' : 'left' }}>
                   {m.created_at ? new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
                 </div>
@@ -144,6 +226,30 @@ export default function ChatPanel({ userId, isAdmin, onBack, targetUser }) {
 
       {/* Input */}
       <div style={{ padding: '8px 12px', borderTop: '1px solid #E4E8F0', display: 'flex', gap: 8, background: '#fff', flexShrink: 0, alignItems: 'center' }}>
+        {/* Hidden file input */}
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*,video/*,.pdf,.doc,.docx"
+          onChange={handleFile}
+          style={{ display: 'none' }}
+        />
+        {/* Attachment button */}
+        <button
+          onClick={() => fileRef.current?.click()}
+          disabled={uploading}
+          style={{
+            width: 36, height: 36, borderRadius: '50%',
+            background: '#F4F6FB', border: '1px solid #E4E8F0',
+            cursor: uploading ? 'not-allowed' : 'pointer',
+            fontSize: 16, display: 'flex', alignItems: 'center',
+            justifyContent: 'center', flexShrink: 0,
+            opacity: uploading ? .5 : 1,
+          }}
+        >
+          {uploading ? '⏳' : '📎'}
+        </button>
+
         <input
           value={text}
           onChange={e => setText(e.target.value)}
